@@ -1,31 +1,179 @@
 # ========================================
 # == Base XFCE DE (All Editions)        ==
 # ========================================
+7zip
+anacron
+apparmor
+apparmor-profiles
+apt-xapian-index -d=trixie
 at-spi2-core
+blueman
+bluez
+bluez-cups
+bluez-tools
+btop
+cifs-utils
+cinnamon -d=trixie
+cinnamon-common -d=trixie
+cinnamon-control-center -d=trixie
+cinnamon-control-center-data -d=trixie
+cinnamon-core -d=trixie
+cinnamon-desktop-data -d=trixie
+cinnamon-session -d=trixie
+cinnamon-session-common -d=trixie
+cinnamon-settings-daemon -d=trixie
+colord
+cups
+cups-bsd
+cups-client
+cups-filters
 dbus-x11
+dconf-cli
+elpa-bash-completion
+evince
+evince-common
+exfatprogs
+fontconfig
+fontconfig-config
+fonts-liberation
+fonts-nanum
+fonts-sawarabi-gothic
+fonts-tlwg-waree
+foomatic-db-compressed-ppds
+galculator
+gdebi
+ghex
+ghostscript-x
+gir1.2-cinnamondesktop-3.0
+gir1.2-cmenu-3.0
+gir1.2-cvc-1.0
+gir1.2-gmenu-3.0
+gnome-disk-utility
+gnome-font-viewer
+gnome-packagekit
+gnome-packagekit-common
+gnome-screenshot
+gnome-shell-extension-manager
+gnome-system-monitor
+gnome-terminal
+gnome-tweaks
+gparted
 greybird-gtk-theme
+grsync
+grub-customizer
+grub-efi-amd64-bin
+grub-pc
+gtk2-engines
+gtk2-engines-murrine
+gtk2-engines-pixbuf
 gvfs-backends
+icewm
+inputattach
+inxi
+isomaster -d=trixie
+keyutils
+laptop-detect
+libatk-adaptor
+libcinnamon-desktop4
+libcinnamon-menu-3-0
+libcvc0
+libfontconfig1
+libfontenc1
+libgail-common
+libgl1-mesa-dri
 libglib2.0-bin
+libgsettings-qt1
+libgtk2.0-bin
+libnotify-bin
+libpam-gnome-keyring
+libproxy1-plugin-gsettings
+libqt5widgets5 -d=trixie
+libvulkan-dev
+libwmf0.2-7-gtk
+libxcb-cursor0
+libxcursor1
 libxfce4ui-utils
 libxml2-utils
+lm-sensors
+lz4
+mesa-utils
+minios-artwork
+minios-wallpapers
+mmv
 mousepad
+mousetweaks
+mtools
+nala
+nemo
+nemo-data
+nemo-fileroller
+nemo-font-manager
+nemo-gtkhash
+neofetch -d=trixie
 network-manager-gnome
-policykit-1-gnome
-ristretto -pv=minimum
-slim +dt=ubuntu
+ntfs-3g
+openprinting-ppds
+orca
+papirus-icon-theme
+pavucontrol
+pcmanfm
+pkexec
+policykit-1-gnome -d=trixie
+polkitd
+profile-sync-daemon
+pulseaudio
+pulseaudio-module-bluetooth
+redshift
+sddm
+slick-greeter
+smbclient
+spice-vdagent
+system-config-printer
+system-config-printer-common
+systemd-timesyncd
+task-lxde-desktop
 thunar
 thunar-volman
+update-inetd
+viewnior
+vlc
+vulkan-tools
+x11-apps
+x11-utils
+x11-xserver-utils
+xapps-common
+xarchiver
+xauth
+xbacklight
+xcursor-themes
+xdg-user-dirs
+xdg-user-dirs-gtk
+xfce4
 xfce4-appfinder
+xfce4-notifyd
 xfce4-panel
+xfce4-power-manager
+xfce4-power-manager-plugins
+xfce4-screenshooter
 xfce4-session
 xfce4-settings
+xfce4-whiskermenu-plugin
 xfce4-xkb-plugin
 xfconf
 xfdesktop4
+xfonts-100dpi
+xfonts-75dpi
+xfonts-base
+xfonts-encodings
+xfonts-scalable
+xfonts-utils
 xfwm4
 xmlstarlet
-minios-artwork
-minios-wallpapers
+xorg-docs-core
+xsensors
+xserver-xorg
+xserver-xorg-video-fbdev
+zstd
 
 # ========================================
 # == Minimum Edition (only)             ==
