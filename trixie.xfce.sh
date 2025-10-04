@@ -1,0 +1,1 @@
+sudo ./minios-cmd -d trixie -a amd64 -de xfce -pv standard -c zstd -l en_US -tz "Asia/Bangkok"
