@@ -217,15 +217,15 @@ targets:
       Preserve HTML tags, links, URLs, placeholders, punctuation, and copyright years exactly.
       Use concise, natural documentation/navigation terminology for the target language.
 
-  # --- submodule: welcome screen (js-kv) ---
+  # --- submodule: welcome screen (i18next) ---
 
   - name: minios-welcome
-    format: js-kv
+    format: i18next
     root: submodules/minios-welcome
     from:
-      - html/js/translations/de.js
-    to: html/js/translations/{lang}.js
-    languages: [de, es, fr, id, it, pt, pt_BR, ru]
+      - html/i18n/en.json
+    to: html/i18n/{lang}.json
+    languages: [de, es, fr, id, it, pt, pt-BR, ru]
 
   # --- submodule: website (i18next) ---
 
