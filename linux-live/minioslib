@@ -2939,6 +2939,22 @@ build_initrd() {
     overlay_unmount_dirs
 }
 
+write_kernel_lock() {
+    local LOCK="$1" PROVIDER="$2" DISTRIBUTION="$3" VERSION="$4" ARCHITECTURE="$5"
+    local FEATURES=""
+
+    case "${PROVIDER}" in
+    distribution) ;;
+    minios) FEATURES=',"features":["aufs"]' ;;
+    *)
+        error "Unsupported kernel lock provider: ${PROVIDER}"
+        return 1
+        ;;
+    esac
+    printf '{"format":1,"kernel":{"provider":"%s","distribution":"%s","version":"%s","package_architecture":"%s"%s}}\n' \
+        "${PROVIDER}" "${DISTRIBUTION}" "${VERSION}" "${ARCHITECTURE}" "${FEATURES}" >"${LOCK}"
+}
+
 kernel_lock_value() {
     local FIELD="$1"
     local LOCK="${WORK_DIR}/kernel.lock"
@@ -4593,6 +4609,16 @@ module_artifact_exists() {
     module_artifact_path "$1" >/dev/null
 }
 
+kernel_module_has_legacy_installer_metadata() {
+    local ARTIFACT MANIFEST
+
+    ARTIFACT="$(module_artifact_path "$1")" || return 1
+    command -v unsquashfs >/dev/null 2>&1 || return 1
+    MANIFEST="$(unsquashfs -cat "${ARTIFACT}" \
+        usr/share/minios/kernel-dpkg/manifest.json 2>/dev/null)" || return 1
+    printf '%s\n' "${MANIFEST}" | grep -Eq '"provider"[[:space:]]*:'
+}
+
 # Orchestrates module packaging and installation into overlays and images
 build_modules() {
     current_process
@@ -4628,6 +4654,12 @@ build_modules() {
             fi
             information "Skipping module ${YELLOW}${MODULE}${ENDCOLOR} due to matching skip condition."
             continue
+        fi
+
+        if [[ "${MODULE}" == *"kernel"* ]] && module_artifact_exists "${MODULE}" &&
+            kernel_module_has_legacy_installer_metadata "${MODULE}"; then
+            information "Rebuilding ${YELLOW}${MODULE}${ENDCOLOR}: cached installer metadata uses the obsolete kernel provider field."
+            remove_module_artifact "${MODULE}"
         fi
 
         MODULE_PRESENT=false
@@ -4716,12 +4748,18 @@ build_modules() {
                     cp "${OVERLAY[merged]}/boot/vmlinuz"-* "${WORK_DIR}/kernel/"
                     cp "${OVERLAY[merged]}/boot/config"-* "${WORK_DIR}/kernel/"
                     if [ -f "${OVERLAY[merged]}/usr/share/minios/kernel-dpkg/manifest.json" ]; then
-                        cp "${OVERLAY[merged]}/usr/share/minios/kernel-dpkg/manifest.json" \
-                            "${WORK_DIR}/kernel.lock.pending"
+                        # The installer manifest has its own strict format-1 schema.
+                        # Keep build-only provider state in kernel.lock instead of
+                        # leaking it into the installer-facing metadata.
+                        write_kernel_lock "${WORK_DIR}/kernel.lock.pending" \
+                            "${KERNEL_PROVIDER}" "${KERNEL_SOURCE_SUITE}" \
+                            "${KERNEL}" "${KERNEL_APT_ARCH}" || exit 1
                     elif [ "${KERNEL_PROVIDER}" = minios ]; then
-                        printf '{"format":1,"kernel":{"provider":"minios","distribution":"%s","version":"%s","package_architecture":"%s","features":["aufs"]}}\n' \
-                            "${KERNEL_SOURCE_SUITE}" "${KERNEL}" "${KERNEL_APT_ARCH}" \
-                            >"${WORK_DIR}/kernel.lock.pending"
+                        # Retain compatibility with locally supplied MiniOS kernel
+                        # payloads that predate installer metadata generation.
+                        write_kernel_lock "${WORK_DIR}/kernel.lock.pending" \
+                            minios "${KERNEL_SOURCE_SUITE}" "${KERNEL}" \
+                            "${KERNEL_APT_ARCH}" || exit 1
                     else
                         error "Kernel package manifest is missing"
                         exit 1

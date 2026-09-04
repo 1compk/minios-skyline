@@ -533,7 +533,9 @@ write_manifest() {
         printf '  "userspace": {"family": "%s", "suite": "' "${DISTRIBUTION_PROFILE}"
         json_escape "${DISTRIBUTION}"
         printf '", "dpkg_architecture": "%s"},\n' "${DISTRIBUTION_ARCH}"
-        printf '  "kernel": {"provider": "distribution", "distribution": "'
+        # format-1 kernel metadata is consumed by minios-installer with an exact
+        # schema. KERNEL_PROVIDER belongs to the build-time kernel.lock only.
+        printf '  "kernel": {"distribution": "'
         json_escape "${KERNEL_SOURCE_SUITE}"
         printf '", "version": "'
         json_escape "${KERNEL_VERSION}"

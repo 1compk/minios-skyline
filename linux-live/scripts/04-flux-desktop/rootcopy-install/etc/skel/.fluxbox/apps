@@ -21,3 +21,10 @@
 [app] (name=xterm) {1}
   [Position]	(CENTER)	{0 0}
 [end]
+
+# Center ordinary application windows by default. Restrict the catch-all rule
+# to the Normal layer so desktop components such as the panel keep their own
+# placement.
+[app] (layer=Normal)
+  [Position]	(CENTER)	{0 0}
+[end]

@@ -451,9 +451,12 @@ normalize_module_whiteouts() {
       return 1
    }
    while IFS= read -r PATHNAME; do
+      # AUFS can enumerate an OverlayFS whiteout that shadows a lower symlink,
+      # but stat resolves the conflicting union path and fails. Since find has
+      # already identified it as a character device, remove that marker too.
       DEVICE=$(stat -c '%t:%T' "$PATHNAME" 2>/dev/null) || {
-         STATUS=1
-         break
+         rm -f -- "$PATHNAME" || STATUS=1
+         continue
       }
       [ "$DEVICE" = 0:0 ] || continue
       rm -f -- "$PATHNAME" || {
@@ -1065,7 +1068,7 @@ find_data() {
       if [ "$DATA" != "" ]; then
          echo "" >&2 >/dev/tty1
          # Use df to get device for DATA path, fallback to mounted_device for mount point
-         DEVICE="$(df "$DATA" 2>/dev/null | tail -n 1 | awk '{print $1}')"
+         DEVICE="$(df -P "$DATA" 2>/dev/null | tail -n 1 | awk '{print $1}')"
          [ -z "$DEVICE" ] && DEVICE="$(mounted_device "$2")"
          echo "* Found on $DEVICE" >&2 >/dev/tty1
          echo "$DATA"
@@ -1531,13 +1534,14 @@ restore_perch_session() {
 #
 manage_perch_partition() {
    debug_log "manage_perch_partition" "$*"
-   local PERCHPART RESIZEMEPART PERCHDEVICE DEVICE DRIVE PERCHDIR LABELS PART ALTPART FREE_SPACE_MB VTOY_PERST_DEV VTOY_PARENT
+   local PERCHPART RESIZEMEPART PERCHDEVICE DEVICE DRIVE PERCHDIR LABELS PART ALTPART FREE_SPACE_MB VTOY_PERST_DEV VTOY_PARENT VENTOYDIR MAPPER_NAME MAPPER_DEVICE DM_NAME DM_BLOCK
 
    DRIVE="$1"
    PERCHDIR="$2"
 
    # Determine the primary device and check for Ventoy environment
-   VENTOYDRIVE=$(awk '/linear/ {print $4}' /ventoy/ventoy_dm_table 2>/dev/null)
+   VENTOYDIR="${MINIOS_VENTOY_DIR:-/ventoy}"
+   VENTOYDRIVE=$(awk '/linear/ {print $4; exit}' "$VENTOYDIR/ventoy_dm_table" 2>/dev/null)
    if [ ! "$VENTOYDRIVE" ]; then
       DEVICE="/dev/$(lsblk -no pkname "$DRIVE" 2>/dev/null | head -n 1)"
    else
@@ -1589,7 +1593,17 @@ manage_perch_partition() {
          if [ ! "$PERCHPART" ]; then
             # In Ventoy version 1.1.01 and higher, a device link to /dev/mapper is used
             # instead of the VENTOY_LINUX_REMOUNT variable in the configuration file.
-            MAPPER_DEVICE="/dev/mapper/$(lsblk -no name "$VENTOYDRIVE" 2>/dev/null | head -n 1)"
+            MAPPER_NAME="$(lsblk -no name "$VENTOYDRIVE" 2>/dev/null | head -n 1)"
+            MAPPER_DEVICE="/dev/mapper/$MAPPER_NAME"
+            if [ ! -e "$MAPPER_DEVICE" ] && [ -n "$MAPPER_NAME" ]; then
+               for DM_NAME in "${MINIOS_SYS_CLASS_BLOCK:-/sys/class/block}"/dm-*/dm/name; do
+                  [ -f "$DM_NAME" ] || continue
+                  [ "$(cat "$DM_NAME" 2>/dev/null)" = "$MAPPER_NAME" ] || continue
+                  DM_BLOCK="$(basename "$(dirname "$(dirname "$DM_NAME")")")"
+                  MAPPER_DEVICE="${MINIOS_DEV_ROOT:-/dev}/$DM_BLOCK"
+                  break
+               done
+            fi
             if [ -e "$MAPPER_DEVICE" ]; then
                PERCHPART="$MAPPER_DEVICE/minios/changes"
             # If there is no device link in /dev/mapper, then an older version of Ventoy is used.
@@ -1626,7 +1640,7 @@ persistence_requested() {
 # Free space in whole MB on the filesystem that holds $1.
 perch_free_mb() {
    local BLOCKS
-   BLOCKS=$(df "$1" 2>/dev/null | tail -n 1 | awk '{print $4}')
+   BLOCKS=$(df -P "$1" 2>/dev/null | tail -n 1 | awk '{print $4}')
    case "$BLOCKS" in
    '' | *[!0-9]*)
       echo 0
@@ -1922,9 +1936,12 @@ perch_state_clear_pending() {
 }
 
 perch_union_is_active() {
-   local RECORD FILESYSTEM OPTIONS EXPECTED SI BRANCH
+   local RECORD FILESYSTEM OPTIONS EXPECTED SI BRANCH BRANCH_PATH EXPECTED_ID BRANCH_ID PROBE
    RECORD=$(perch_mount_record "$1")
-   [ -n "$RECORD" ] || return 1
+   [ -n "$RECORD" ] || {
+      echo "Cannot identify the active root union at $1" >&2
+      return 1
+   }
    FILESYSTEM=$(printf '%s\n' "$RECORD" | cut -f2)
    OPTIONS=$(printf '%s\n' "$RECORD" | cut -f3)
    case "$FILESYSTEM" in
@@ -1936,11 +1953,42 @@ perch_union_is_active() {
       esac
       ;;
    aufs)
+      if aufs_ng_is_loaded; then
+         PROBE=".minios-persistence-probe.$$"
+         : >"$1/$PROBE" || return 1
+         if [ ! -f "$2/$PROBE" ]; then
+            rm -f "$1/$PROBE" "$2/$PROBE" 2>/dev/null
+            return 1
+         fi
+         rm -f "$1/$PROBE" || return 1
+         [ ! -e "$2/$PROBE" ]
+         return
+      fi
       SI=$(printf '%s\n' "$OPTIONS" | tr ',' '\n' | sed -n 's/^si=//p')
-      [ -n "$SI" ] || return 1
+      [ -n "$SI" ] || {
+         echo "Cannot identify the active AUFS instance" >&2
+         return 1
+      }
       BRANCH="$MINIOS_SYS_FS_AUFS/si_$SI/br0"
-      [ -r "$BRANCH" ] || return 1
-      [ "$(sed 's/=rw.*$//' "$BRANCH")" = "$2" ]
+      [ -r "$BRANCH" ] || {
+         echo "Cannot read the active AUFS writable branch: $BRANCH" >&2
+         return 1
+      }
+      BRANCH_PATH=$(sed 's/=rw.*$//' "$BRANCH")
+      [ "$BRANCH_PATH" = "$2" ] && return 0
+      EXPECTED_ID=$(perch_store_identity "$2") || {
+         echo "Cannot identify expected AUFS persistence branch: $2" >&2
+         return 1
+      }
+      BRANCH_ID=$(perch_store_identity "$BRANCH_PATH") || {
+         echo "Cannot identify active AUFS persistence branch: $BRANCH_PATH" >&2
+         return 1
+      }
+      if [ "$BRANCH_ID" != "$EXPECTED_ID" ]; then
+         echo "AUFS writable branch does not match persistence: $BRANCH_PATH" >&2
+         return 1
+      fi
+      return 0
       ;;
    *) return 1 ;;
    esac
@@ -2374,7 +2422,7 @@ persistent_changes() {
       PERCHSIZE=$(parse_size "$PERCHSIZE")
    fi
    CHANDIR="$DATA/$(basename "$CHANGES")"
-   DRIVE="$(df "$DATA" | tail -n 1 | awk '{print $1}')"
+   DRIVE="$(df -P "$DATA" | tail -n 1 | awk '{print $1}')"
 
    handle_perch_file() {
       if [ -z "$PERCHFILE_EXISTS" ]; then
@@ -2440,7 +2488,7 @@ persistent_changes() {
    }
 
    calculate_perch_size() {
-      AVAILABLE_SPACE=$(df "$CHANDIR" | tail -n 1 | awk '{print $4}')
+      AVAILABLE_SPACE=$(df -P "$CHANDIR" | tail -n 1 | awk '{print $4}')
       AVAILABLE_SPACE=$((AVAILABLE_SPACE / 1024))
 
       if { [ "$PERCHMODE" = "raw" ] || [ "$PERCHMODE" = "luks" ]; } && [ -e "$CHANDIR/$PERCHFILE" ]; then
@@ -2552,6 +2600,14 @@ persistent_changes() {
       PERCHFILE="$PERCHDIR/changes.dat"
       [ -e "$CHANDIR/$PERCHFILE" ] && PERCHFILE_EXISTS="true"
       calculate_perch_size
+      if [ -z "$PERCHFILE_EXISTS" ] && [ "$PERCHSIZE" -le 0 ]; then
+         if [ "$NEW_SESSION" = "true" ]; then
+            rmdir "$CHANDIR/$PERCHDIR" 2>/dev/null || true
+         fi
+         perch_state_fail_now "$PERCHMODE" "$PERCHDIR" \
+            "Session #$PERCHDIR: no space is available for a DynFileFS container; continuing in memory."
+         return
+      fi
       MOUNT_OPTS="-f $CHANDIR/$PERCHFILE -m $CHANGES -p 4000"
       [ -z "$PERCHFILE_EXISTS" ] || [ -n "$PERCHSIZE" ] && MOUNT_OPTS="$MOUNT_OPTS -s $PERCHSIZE"
       @mount.dynfilefs $MOUNT_OPTS || {
@@ -2876,11 +2932,6 @@ persistent_changes() {
       return
    fi
 
-   # Warn before problems start: a nearly full persistence device is the most
-   # common cause of a mid-session freeze and of containers that cannot be
-   # unmounted cleanly afterwards.
-   perch_space_warn "$CHANDIR" || true
-
    if ! PERCHSESSION=$(restore_perch_session "$DRIVE" "$CHANDIR" "$PERCHDIR" "$ACTION" "$PERCHMODE" "$AUTO_RESUME"); then
       boot_warning_notify warning persistence \
          "Persistent changes could not select a usable session; continuing in memory."
@@ -2892,6 +2943,10 @@ persistent_changes() {
    PERCHDIR=$1
    : "${PERCHMODE:=$2}"
    NEW_SESSION=$3
+
+   # Device-qualified stores are mounted by session selection, so measure free
+   # space only now rather than accidentally checking the read-only ISO.
+   perch_space_warn "$CHANDIR" || true
 
    if [ -z "$PERCHMODE" ]; then
       native_mode

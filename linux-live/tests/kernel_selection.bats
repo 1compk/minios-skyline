@@ -254,6 +254,27 @@ make_grub_module_fixture() {
     [[ "${output}" != *"https://deb.debian.org"* ]]
 }
 
+@test "kernel manifest keeps the format-1 installer kernel schema" {
+    local acquire="${LIVE_ROOT}/scripts/01-kernel/acquire"
+    local body support work
+    body="$(awk '/^json_escape\(\)/,/^}/' "${acquire}")"
+    body+=$'\n'
+    body+="$(awk '/^write_manifest\(\)/,/^}/' "${acquire}")"
+    support="${BATS_TEST_TMPDIR}/kernel-dpkg"
+    work="${BATS_TEST_TMPDIR}/work"
+    mkdir -p "${support}" "${work}"
+    : >"${work}/package-fragments"
+
+    run env SUPPORT_DIR="${support}" WORK="${work}" KERNEL_UPDATE_POLICY=frozen \
+        DISTRIBUTION_PROFILE=debian DISTRIBUTION=trixie DISTRIBUTION_ARCH=amd64 \
+        KERNEL_SOURCE_SUITE=trixie KERNEL_VERSION=6.12-test KERNEL_APT_ARCH=amd64 \
+        bash -c "${body}; write_manifest; cat \"\${SUPPORT_DIR}/manifest.json\""
+
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *'"kernel": {"distribution": "trixie", "version": "6.12-test", "package_architecture": "amd64"}'* ]]
+    [[ "${output}" != *'"provider"'* ]]
+}
+
 @test "kernel release series parser selects Linux 6.12 exactly" {
     local build_script="${LIVE_ROOT}/scripts/01-kernel/build"
     local body
@@ -283,6 +304,21 @@ make_grub_module_fixture() {
 
     [ "${status}" -eq 0 ]
     [[ "${output}" =~ ^\[\"[0-9A-F]{40,64}\" ]]
+}
+
+@test "kernel lock writer keeps provider in build metadata" {
+    WORK_DIR="${BATS_TEST_TMPDIR}/work"
+    mkdir -p "${WORK_DIR}"
+    error() { return 1; }
+
+    write_kernel_lock "${WORK_DIR}/kernel.lock" distribution trixie 6.12-test amd64
+    [ "$(kernel_lock_value provider)" = distribution ]
+    [ "$(kernel_lock_value distribution)" = trixie ]
+    ! grep -Fq '"features"' "${WORK_DIR}/kernel.lock"
+
+    write_kernel_lock "${WORK_DIR}/kernel.lock" minios trixie 6.12-mos-amd64 amd64
+    [ "$(kernel_lock_value provider)" = minios ]
+    grep -Fq '"features":["aufs"]' "${WORK_DIR}/kernel.lock"
 }
 
 @test "kernel lock parser reads compact kernel object" {
@@ -648,6 +684,28 @@ EOF
     touch "${BUILD_SCRIPTS_DIR}/minioslib"
 
     module_artifact_exists 03-gui-base
+}
+
+@test "cached kernel module detects obsolete installer provider metadata" {
+    command -v mksquashfs >/dev/null
+    WORK_DIR="${BATS_TEST_TMPDIR}/work"
+    LIVEKITNAME=minios
+    BEXT=sb
+    local root artifact manifest
+    root="${BATS_TEST_TMPDIR}/root"
+    artifact="${WORK_DIR}/image/minios/01-kernel-6.12-test.sb"
+    manifest="${root}/usr/share/minios/kernel-dpkg/manifest.json"
+    mkdir -p "$(dirname "${manifest}")" "$(dirname "${artifact}")"
+    printf '%s\n' '{"format":1,"kernel":{"provider":"distribution","distribution":"trixie","version":"6.12-test","package_architecture":"amd64"}}' >"${manifest}"
+    mksquashfs "${root}" "${artifact}" -noappend -quiet -no-progress >/dev/null
+
+    kernel_module_has_legacy_installer_metadata 01-kernel
+
+    rm -f "${artifact}"
+    printf '%s\n' '{"format":1,"kernel":{"distribution":"trixie","version":"6.12-test","package_architecture":"amd64"}}' >"${manifest}"
+    mksquashfs "${root}" "${artifact}" -noappend -quiet -no-progress >/dev/null
+
+    ! kernel_module_has_legacy_installer_metadata 01-kernel
 }
 
 @test "existing kernel module ignores newer kernel build inputs" {

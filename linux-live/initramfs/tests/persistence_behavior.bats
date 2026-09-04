@@ -448,6 +448,25 @@ setup_dispatch() {
     [ "$(cat "$log")" = /union/etc/removed ]
 }
 
+@test "runtime union removes an unstatable whiteout shadowing a lower symlink" {
+    # shellcheck source=/dev/null
+    . "$LIB"
+    log="$WORK/removed-shadow.log"
+    get_union_fs() { printf '%s\n' aufs; }
+    find() { printf '%s\n' /union/etc/rc0.d/K02eudev; }
+    stat() { return 1; }
+    rm() {
+        case "${!#}" in
+        /union/*) printf '%s\n' "${!#}" >>"$log" ;;
+        *) /bin/rm "$@" ;;
+        esac
+    }
+
+    normalize_module_whiteouts /union
+
+    [ "$(cat "$log")" = /union/etc/rc0.d/K02eudev ]
+}
+
 @test "AUFS inventory and whiteout scans propagate enumeration failures" {
     # shellcheck source=/dev/null
     . "$LIB"
@@ -548,7 +567,10 @@ setup_dispatch() {
 
 @test "free space is reported in MB from the device" {
     . "$LIB"
-    df() { printf '%s\n' "Filesystem 1K-blocks Used Available Use% Mounted on" "/dev/test 10000000 5000000 4096000 55% /"; }
+    df() {
+        [ "$1" = -P ] || return 1
+        printf '%s\n' "Filesystem 1K-blocks Used Available Use% Mounted on" "/dev/test 10000000 5000000 4096000 55% /"
+    }
     [ "$(perch_free_mb /any)" -eq 4000 ]
 
     df() { printf '%s\n' "Filesystem 1K-blocks Used Available Use% Mounted on"; }
@@ -593,6 +615,18 @@ setup_dispatch() {
     df() { printf '%s\n' "Filesystem 1K-blocks Used Available Use% Mounted on" "/dev/test 3145728 0 3145728 0% /"; }
     persistent_changes "$TEST_DATA" "$TEST_CHANGES" || true
     assert_log "@mount.dynfilefs -f $TEST_DATA/changes/1/changes.dat -m $TEST_CHANGES -p 4000 -s 2000"
+}
+
+@test "new DynFileFS session with no available capacity falls back to memory" {
+    setup_dispatch dynfilefs ext4 0
+    df() { printf '%s\n' "Filesystem 1K-blocks Used Available Use% Mounted on" "/dev/test 1048576 1048576 0 100% /"; }
+
+    persistent_changes "$TEST_DATA" "$TEST_CHANGES" || true
+
+    ! grep -Fq '@mount.dynfilefs' "$LOG"
+    [ ! -d "$TEST_CHANDIR/1" ]
+    grep -Fqx 'boot_level=failed' "$MINIOS_PERSISTENCE_RUNDIR/boot-state"
+    grep -Fq 'no space is available' "$MINIOS_PERSISTENCE_RUNDIR/boot-warnings"
 }
 
 @test "jq-capable initrd resumes a json-only session" {
@@ -848,6 +882,42 @@ EOF
     [ "$status" -ne 0 ]
 }
 
+@test "post-union AUFS authority accepts a bind source for the writable branch" {
+    # shellcheck source=/dev/null
+    . "$LIB"
+    changes="$WORK/changes"
+    source="$WORK/session"
+    union="$WORK/union"
+    mkdir -p "$changes" "$source" "$union" "$MINIOS_SYS_FS_AUFS/si_test"
+    printf '%s\n' "$source=rw" >"$MINIOS_SYS_FS_AUFS/si_test/br0"
+    printf '%s\n' "none $union aufs rw,si=test 0 0" >"$MINIOS_PROC_MOUNTS"
+    perch_store_identity() {
+        case "$1" in
+        "$changes" | "$source") printf '%s\n' '253 42' ;;
+        *) return 1 ;;
+        esac
+    }
+
+    perch_union_is_active "$union" "$changes"
+}
+
+@test "post-union aufs-ng authority verifies writes through the union" {
+    # shellcheck source=/dev/null
+    . "$LIB"
+    changes="$WORK/changes"
+    union="$WORK/union"
+    mkdir -p "$changes"
+    ln -s "$changes" "$union"
+    printf '%s\n' "none $union aufs rw,si=1 0 0" >"$MINIOS_PROC_MOUNTS"
+    aufs_ng_is_loaded() { return 0; }
+
+    perch_union_is_active "$union" "$changes"
+
+    run bash -c 'find "$1" -name ".minios-persistence-probe.*" -print -quit' _ "$changes"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
 @test "forced OverlayFS skips AUFS branch append even when AUFS is available" {
     # shellcheck source=/dev/null
     . "$LIB"
@@ -951,6 +1021,26 @@ EOF
     assert_log "dmsetup remove vtoy_persistent"
     assert_log "dmsetup remove sda1"
     assert_log "dmsetup remove ventoy"
+}
+
+@test "Ventoy persistence resolves dm device when mapper symlink is absent" {
+    # shellcheck source=/dev/null
+    . "$LIB"
+    mkdir -p "$MINIOS_VENTOY_DIR" "$MINIOS_SYS_CLASS_BLOCK/dm-1/dm" "$MINIOS_DEV_ROOT"
+    printf '%s\n' '0 100 linear /dev/sda1 0' >"$MINIOS_VENTOY_DIR/ventoy_dm_table"
+    printf '%s\n' sda1 >"$MINIOS_SYS_CLASS_BLOCK/dm-1/dm/name"
+    : >"$MINIOS_DEV_ROOT/dm-1"
+    blkid() { return 0; }
+    lsblk() {
+        case "$2" in
+        pkname) printf '%s\n' sda ;;
+        name) printf '%s\n' sda1 ;;
+        esac
+    }
+
+    result=$(manage_perch_partition /dev/mapper/ventoy resume)
+
+    [ "$result" = "$MINIOS_DEV_ROOT/dm-1/minios/changes" ]
 }
 
 @test "toram releases Ventoy mappings only after a successful RAM detach" {
