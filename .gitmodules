@@ -136,3 +136,6 @@
 [submodule "submodules/gtkask"]
 	path = submodules/gtkask
 	url = https://github.com/minios-linux/gtkask.git
+[submodule "submodules/minios-thunar-integration"]
+	path = submodules/minios-thunar-integration
+	url = https://github.com/minios-linux/minios-thunar-integration.git

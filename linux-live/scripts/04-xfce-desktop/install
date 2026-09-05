@@ -94,10 +94,6 @@ if [ -f "/usr/share/applications/xfce4-clipman-settings.desktop" ]; then
     sed -i "29i Comment[ru]=Настройте свой буфер обмена" /usr/share/applications/xfce4-clipman-settings.desktop
 fi
 
-mv /usr/bin/thunar /usr/bin/thunar-bin
-mv /usr/bin/thunar.sh /usr/bin/thunar
-chmod +x /usr/bin/thunar
-
 if [ -f /usr/bin/connman-gtk ]; then
     if [ ! -d /etc/skel/.config/autostart ]; then
         mkdir -p /etc/skel/.config/autostart

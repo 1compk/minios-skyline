@@ -11,6 +11,10 @@ if [ -d /etc/X11/xinit/xinitrc.d ]; then
   unset f
 fi
 
+if [ -x /usr/bin/minios-thunar-uca-sync ]; then
+  /usr/bin/minios-thunar-uca-sync >/dev/null || true
+fi
+
 xrdb -merge .Xresources
 
 exec xfce4-session

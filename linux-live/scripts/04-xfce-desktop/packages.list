@@ -13,6 +13,7 @@ network-manager-gnome
 policykit-1-gnome || mate-polkit || xfce-polkit
 ristretto -pv=minimum
 thunar
+minios-thunar-integration
 thunar-volman
 xfce4-appfinder
 xfce4-panel
