@@ -4645,17 +4645,6 @@ build_modules() {
 
     # Iterate over each module in the environments directory
     for MODULE in *; do
-        if should_skip_module "${ENVIRONMENTS}/${MODULE}/skip_conditions.conf"; then
-            if [[ "${MODULE}" == *"kernel"* ]]; then
-                remove_module_artifact "${MODULE}"
-            elif [ "${MODULE_CHAIN_INVALIDATED}" = false ]; then
-                remove_module_chain_from "${MODULE}"
-                MODULE_CHAIN_INVALIDATED=true
-            fi
-            information "Skipping module ${YELLOW}${MODULE}${ENDCOLOR} due to matching skip condition."
-            continue
-        fi
-
         if [[ "${MODULE}" == *"kernel"* ]] && module_artifact_exists "${MODULE}" &&
             kernel_module_has_legacy_installer_metadata "${MODULE}"; then
             information "Rebuilding ${YELLOW}${MODULE}${ENDCOLOR}: cached installer metadata uses the obsolete kernel provider field."
@@ -4669,6 +4658,9 @@ build_modules() {
         fi
         if [ "${MODULE_PRESENT}" = true ]; then
             information "${YELLOW}${MODULE}${ENDCOLOR} module building is skipped, because it is already present in the image folder."
+        elif should_skip_module "${ENVIRONMENTS}/${MODULE}/skip_conditions.conf"; then
+            information "Skipping module ${YELLOW}${MODULE}${ENDCOLOR} due to matching skip condition."
+            continue
         else
             if [ "${MODULE_CHAIN_INVALIDATED}" = false ] && [ "${MODULE#*-}" != "debug" ]; then
                 if [[ "${MODULE}" == *"kernel"* ]]; then
