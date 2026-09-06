@@ -24,6 +24,31 @@ DEBCONF_PID="$!"
 spinner "${DEBCONF_PID}" "Applying debconf settings"
 wait "${DEBCONF_PID}"
 
+# Add the official VSCodium repository before CondinAPT resolves the Toolbox package list.
+if ([ "$PACKAGE_VARIANT" = "toolbox" ] || [ "$PACKAGE_VARIANT" = "ultra" ]) && [ "$DISTRIBUTION_ARCH" = "amd64" ]; then
+    install -m 0755 -d /usr/share/keyrings /etc/apt/sources.list.d
+
+    if [ "$VERBOSITY_LEVEL" -ge 1 ]; then
+        curl -fsSL https://gitlab.com/paulcarroty/vscodium-deb-rpm-repo/raw/master/pub.gpg \
+            -o /usr/share/keyrings/vscodium.asc
+    else
+        run_with_spinner "Downloading VSCodium GPG key" curl -fsSL \
+            https://gitlab.com/paulcarroty/vscodium-deb-rpm-repo/raw/master/pub.gpg \
+            -o /usr/share/keyrings/vscodium.asc
+    fi
+    chmod 0644 /usr/share/keyrings/vscodium.asc
+
+    cat >/etc/apt/sources.list.d/vscodium.list <<'EOF'
+deb [arch=amd64 signed-by=/usr/share/keyrings/vscodium.asc] https://download.vscodium.com/debs vscodium main
+EOF
+
+    if [ "$VERBOSITY_LEVEL" -ge 1 ]; then
+        apt-get update --allow-releaseinfo-change
+    else
+        run_with_spinner "Updating package lists with VSCodium repository" apt-get update --allow-releaseinfo-change
+    fi
+fi
+
 /condinapt -l "${SCRIPT_DIR}/packages.list" -c "${SCRIPT_DIR}/minios_build.conf" -m "${SCRIPT_DIR}/condinapt.map"
 if [ $? -ne 0 ]; then
     echo "Failed to install packages."
@@ -36,28 +61,6 @@ fi
 
 if [ -f "/usr/share/applications/display-im6.q16.desktop" ]; then
     rm -f /usr/share/applications/display-im6.q16.desktop
-fi
-
-if ([ "$PACKAGE_VARIANT" = "toolbox" ] || [ "$PACKAGE_VARIANT" = "ultra" ]) && ! pkg_is_installed "codium"; then
-    if [ "$VERBOSITY_LEVEL" -ge 1 ]; then
-        curl -LJO $(curl --silent "https://api.github.com/repos/VSCodium/vscodium/releases/latest" |
-            grep '"browser_download_url":' | grep "$DISTRIBUTION_ARCH.deb"\" |
-            sed -E 's/.*"([^"]+)".*/\1/')
-        apt-get update
-        apt-get -y install ./$(ls codium*$DISTRIBUTION_ARCH.deb)
-    else
-        run_with_spinner "Downloading VSCodium" bash -c '
-            curl -sLJO $(curl --silent "https://api.github.com/repos/VSCodium/vscodium/releases/latest" |
-                grep '"'"browser_download_url"'"': | grep "$DISTRIBUTION_ARCH.deb"\" |
-                sed -E "s/.*\"([^\"]+)\".*/\1/")
-        '
-        run_with_spinner "Updating package lists" apt-get update --allow-releaseinfo-change
-        run_with_spinner "Installing VSCodium" apt-get -y install ./$(ls codium*$DISTRIBUTION_ARCH.deb)
-    fi
-    if [ "$USE_APT_CACHE" = "true" ]; then
-        cp -f ./$(ls codium*$DISTRIBUTION_ARCH.deb) /var/cache/apt/archives/
-    fi
-    rm -f ./$(ls codium*$DISTRIBUTION_ARCH.deb)
 fi
 
 if [ -f "/usr/share/applications/isomaster.desktop" ]; then
